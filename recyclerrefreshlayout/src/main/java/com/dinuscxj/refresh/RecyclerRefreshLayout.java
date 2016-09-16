@@ -48,7 +48,7 @@ public class RecyclerRefreshLayout extends ViewGroup
     //the default height of the RefreshView
     private static final int DEFAULT_REFRESH_SIZE_DP = 30;
     //the animation duration of the RefreshView scroll to the refresh point or the start point
-    private static final int DEFAULT_ANIMATE_DURATION = 200;
+    private static final int DEFAULT_ANIMATE_DURATION = 300;
     // the threshold of the trigger to refresh
     private static final int DEFAULT_REFRESH_TARGET_OFFSET_DP = 50;
 
@@ -497,10 +497,6 @@ public class RecyclerRefreshLayout extends ViewGroup
             return false;
         }
 
-        if (mIsAnimatingToStart) {
-            return true;
-        }
-
         if ((!isEnabled() || (canChildScrollUp(mTarget) && !mDispatchTargetTouchDown))) {
             return false;
         }
@@ -548,7 +544,6 @@ public class RecyclerRefreshLayout extends ViewGroup
                 break;
         }
 
-        Log.i("debug", "isDragged " + mIsBeingDragged);
         return mIsBeingDragged;
     }
 
@@ -559,16 +554,12 @@ public class RecyclerRefreshLayout extends ViewGroup
             return false;
         }
 
-        if (mIsAnimatingToStart) {
-            return false;
-        }
-
         if (!isEnabled() || (canChildScrollUp(mTarget) && !mDispatchTargetTouchDown)) {
             Log.i("debug", "child touch event " + ev.getAction());
             return false;
         }
 
-        Log.i("debug", "move touch event " + ev.getAction() + "isRefreshing" + mIsRefreshing);
+        Log.i("debug", "parent touch event " + ev.getAction() + "isRefreshing" + mIsRefreshing);
 
         final int action = ev.getAction();
 
@@ -588,7 +579,15 @@ public class RecyclerRefreshLayout extends ViewGroup
                     return false;
                 }
 
-                float overScrollY = activeMoveY - mInitialMotionY + (-mInitialScrollY);
+                float overScrollY;
+                if (mIsAnimatingToStart) {
+                    overScrollY = -getScrollY();
+
+                    mInitialMotionY = activeMoveY;
+                    mInitialScrollY = getScrollY();
+                } else {
+                    overScrollY = activeMoveY - mInitialMotionY + (-mInitialScrollY);
+                }
 
                 if (mIsRefreshing) {
                     if (overScrollY <= 0) {
@@ -649,11 +648,13 @@ public class RecyclerRefreshLayout extends ViewGroup
                     return false;
                 }
 
-                if (!mIsBeingDragged) {
+                if (!mIsBeingDragged && -getScrollY() <= 0) {
                     return false;
                 }
 
-                final float overScrollTop = (activeMoveY - mInitialMotionY + (-mInitialScrollY));
+                final float overScrollTop = -getScrollY();
+
+                Log.i("diff", overScrollTop + " --- " + (activeMoveY - mInitialMotionY + (-mInitialScrollY)));
 
                 mIsBeingDragged = false;
                 mActivePointerId = INVALID_POINTER;
@@ -711,9 +712,14 @@ public class RecyclerRefreshLayout extends ViewGroup
     }
 
     private void animateOffsetToStartPosition(int from, Animation.AnimationListener listener) {
+        if (computeAnimateToStartDuration(from) <= 0) {
+            listener.onAnimationEnd(null);
+            return;
+        }
+
         mFrom = from;
         mAnimateToStartAnimation.reset();
-        mAnimateToStartAnimation.setDuration(mAnimateToStartDuration);
+        mAnimateToStartAnimation.setDuration(computeAnimateToStartDuration(from));
         mAnimateToStartAnimation.setInterpolator(mAnimateToStartInterpolator);
         if (listener != null) {
             mAnimateToStartAnimation.setAnimationListener(listener);
@@ -723,10 +729,14 @@ public class RecyclerRefreshLayout extends ViewGroup
     }
 
     private void animateToRefreshingPosition(int from, Animation.AnimationListener listener) {
-        mFrom = from;
+        if (computeAnimateToRefreshingDuration(from) <= 0) {
+            listener.onAnimationEnd(null);
+            return;
+        }
 
+        mFrom = from;
         mAnimateToRefreshingAnimation.reset();
-        mAnimateToRefreshingAnimation.setDuration(mAnimateToRefreshDuration);
+        mAnimateToRefreshingAnimation.setDuration(computeAnimateToRefreshingDuration(from));
         mAnimateToRefreshingAnimation.setInterpolator(mAnimateToRefreshInterpolator);
 
         if (listener != null) {
@@ -735,6 +745,16 @@ public class RecyclerRefreshLayout extends ViewGroup
 
         clearAnimation();
         startAnimation(mAnimateToRefreshingAnimation);
+    }
+
+    private int computeAnimateToRefreshingDuration(float from) {
+        return (int) (Math.max(0.0f, Math.min(1.0f, (from - mRefreshTargetOffset) / mRefreshTargetOffset))
+                * mAnimateToRefreshDuration);
+    }
+
+    private int computeAnimateToStartDuration(float from) {
+        return (int) (Math.max(0.0f, Math.min(1.0f, from / mRefreshTargetOffset))
+                * mAnimateToStartDuration);
     }
 
     private void moveSpinner(float overScrollTop) {
