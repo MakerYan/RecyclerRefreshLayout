@@ -10,6 +10,7 @@ import android.support.v4.view.NestedScrollingParentHelper;
 import android.support.v4.view.ViewCompat;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
+import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -51,7 +52,6 @@ public class RecyclerRefreshLayout extends ViewGroup
     // the threshold of the trigger to refresh
     private static final int DEFAULT_REFRESH_TARGET_OFFSET_DP = 50;
 
-    private static final float DRAG_RATE = 0.5f;
     private static final float DECELERATE_INTERPOLATION_FACTOR = 2.0f;
 
     // NestedScroll
@@ -61,11 +61,12 @@ public class RecyclerRefreshLayout extends ViewGroup
     private final NestedScrollingParentHelper mNestedScrollingParentHelper;
 
     //whether to remind the callback listener(OnRefreshListener)
-    private boolean mNotify;
-    private boolean mRefreshing;
+    private boolean mIsAnimatingToStart;
+    private boolean mIsRefreshing;
+    private boolean mIsFitRefresh;
     private boolean mIsBeingDragged;
-    private boolean mIsFitRefreshing;
-    private boolean mReturningToStart;
+    private boolean mNotifyListener;
+    private boolean mDispatchTargetTouchDown;
 
     private int mRefreshViewIndex = INVALID_INDEX;
     private int mActivePointerId = INVALID_POINTER;
@@ -78,6 +79,7 @@ public class RecyclerRefreshLayout extends ViewGroup
     private int mCurrentScrollOffset;
 
     private float mInitialDownY;
+    private float mInitialScrollY;
     private float mInitialMotionY;
     private float mRefreshTargetOffset;
 
@@ -114,6 +116,7 @@ public class RecyclerRefreshLayout extends ViewGroup
     private final Animation.AnimationListener mRefreshingListener = new Animation.AnimationListener() {
         @Override
         public void onAnimationStart(Animation animation) {
+            mIsAnimatingToStart = true;
             mIRefreshStatus.refreshing();
         }
 
@@ -123,17 +126,20 @@ public class RecyclerRefreshLayout extends ViewGroup
 
         @Override
         public void onAnimationEnd(Animation animation) {
-            if (mNotify) {
+            if (mNotifyListener) {
                 if (mOnRefreshListener != null) {
                     mOnRefreshListener.onRefresh();
                 }
             }
+
+            mIsAnimatingToStart = false;
         }
     };
 
     private final Animation.AnimationListener mResetListener = new Animation.AnimationListener() {
         @Override
         public void onAnimationStart(Animation animation) {
+            mIsAnimatingToStart = true;
         }
 
         @Override
@@ -143,8 +149,11 @@ public class RecyclerRefreshLayout extends ViewGroup
         @Override
         public void onAnimationEnd(Animation animation) {
             mIRefreshStatus.reset();
-            mRefreshing = false;
-            mReturningToStart = false;
+
+            mInitialScrollY = 0.0f;
+            mIsRefreshing = false;
+            mIsAnimatingToStart = false;
+            mDispatchTargetTouchDown = false;
         }
     };
 
@@ -488,11 +497,11 @@ public class RecyclerRefreshLayout extends ViewGroup
             return false;
         }
 
-        if (mRefreshing || mReturningToStart) {
+        if (mIsAnimatingToStart) {
             return true;
         }
 
-        if (!isEnabled() || canChildScrollUp(mTarget)) {
+        if ((!isEnabled() || (canChildScrollUp(mTarget) && !mDispatchTargetTouchDown))) {
             return false;
         }
 
@@ -500,7 +509,6 @@ public class RecyclerRefreshLayout extends ViewGroup
 
         switch (action) {
             case MotionEvent.ACTION_DOWN:
-                scrollTargetOffset(0, 0);
                 mActivePointerId = MotionEventCompat.getPointerId(ev, 0);
                 mIsBeingDragged = false;
 
@@ -510,6 +518,8 @@ public class RecyclerRefreshLayout extends ViewGroup
                 }
 
                 mInitialDownY = initialDownY;
+                mInitialScrollY = mCurrentScrollOffset;
+                mDispatchTargetTouchDown = false;
                 break;
 
             case MotionEvent.ACTION_MOVE:
@@ -538,6 +548,7 @@ public class RecyclerRefreshLayout extends ViewGroup
                 break;
         }
 
+        Log.i("debug", "isDragged " + mIsBeingDragged);
         return mIsBeingDragged;
     }
 
@@ -548,13 +559,16 @@ public class RecyclerRefreshLayout extends ViewGroup
             return false;
         }
 
-        if (mRefreshing || mReturningToStart) {
-            return true;
-        }
-
-        if (!isEnabled() || canChildScrollUp(mTarget)) {
+        if (mIsAnimatingToStart) {
             return false;
         }
+
+        if (!isEnabled() || (canChildScrollUp(mTarget) && !mDispatchTargetTouchDown)) {
+            Log.i("debug", "child touch event " + ev.getAction());
+            return false;
+        }
+
+        Log.i("debug", "move touch event " + ev.getAction() + "isRefreshing" + mIsRefreshing);
 
         final int action = ev.getAction();
 
@@ -574,16 +588,32 @@ public class RecyclerRefreshLayout extends ViewGroup
                     return false;
                 }
 
-                final float overScrollY = activeMoveY - mInitialMotionY;
+                float overScrollY = activeMoveY - mInitialMotionY + (-mInitialScrollY);
 
-                if (mIsBeingDragged) {
-                    if (overScrollY > 0) {
-                        moveSpinner(overScrollY);
-                    } else {
-                        return false;
+                if (mIsRefreshing) {
+                    if (overScrollY <= 0) {
+                        Log.d("debug", "dispatch target");
+                        if (mDispatchTargetTouchDown) {
+                            mTarget.dispatchTouchEvent(ev);
+                        } else {
+                            MotionEvent obtain = MotionEvent.obtain(ev);
+                            obtain.setAction(MotionEvent.ACTION_DOWN);
+                            mDispatchTargetTouchDown = true;
+                            mTarget.dispatchTouchEvent(obtain);
+                        }
                     }
+                    Log.i("debug", "overScrollY" + overScrollY);
+                    moveSpinner(overScrollY);
                 } else {
-                    initDragStatus(activeMoveY);
+                    if (mIsBeingDragged) {
+                        if (overScrollY > 0) {
+                            moveSpinner(overScrollY);
+                        } else {
+                            return false;
+                        }
+                    } else {
+                        initDragStatus(activeMoveY);
+                    }
                 }
                 break;
             }
@@ -604,6 +634,14 @@ public class RecyclerRefreshLayout extends ViewGroup
                     return false;
                 }
 
+                if (mIsRefreshing) {
+                    if (mDispatchTargetTouchDown) {
+                        mTarget.dispatchTouchEvent(ev);
+                        mDispatchTargetTouchDown = false;
+                    }
+                    return false;
+                }
+
                 final float activeMoveY = getMotionEventY(ev, mActivePointerId);
                 if (activeMoveY == -1) {
                     mIsBeingDragged = false;
@@ -615,7 +653,7 @@ public class RecyclerRefreshLayout extends ViewGroup
                     return false;
                 }
 
-                final float overScrollTop = (activeMoveY - mInitialMotionY) * DRAG_RATE;
+                final float overScrollTop = (activeMoveY - mInitialMotionY + (-mInitialScrollY));
 
                 mIsBeingDragged = false;
                 mActivePointerId = INVALID_POINTER;
@@ -637,10 +675,10 @@ public class RecyclerRefreshLayout extends ViewGroup
      * @param refreshing Whether or not the view should show refresh progress.
      */
     public void setRefreshing(boolean refreshing) {
-        if (refreshing && mRefreshing != refreshing) {
-            mRefreshing = refreshing;
+        if (refreshing && mIsRefreshing != refreshing) {
+            mIsRefreshing = refreshing;
             scrollTargetOffset(0, 0);
-            mNotify = false;
+            mNotifyListener = false;
 
             animateToRefreshingPosition(-mCurrentScrollOffset, mRefreshingListener);
         } else {
@@ -649,9 +687,9 @@ public class RecyclerRefreshLayout extends ViewGroup
     }
 
     private void setRefreshing(boolean refreshing, final boolean notify) {
-        if (mRefreshing != refreshing) {
-            mNotify = notify;
-            mRefreshing = refreshing;
+        if (mIsRefreshing != refreshing) {
+            mNotifyListener = notify;
+            mIsRefreshing = refreshing;
             if (refreshing) {
                 animateToRefreshingPosition(-mCurrentScrollOffset, mRefreshingListener);
             } else {
@@ -662,8 +700,12 @@ public class RecyclerRefreshLayout extends ViewGroup
 
     private void initDragStatus(float activeMoveY) {
         float diff = activeMoveY - mInitialDownY;
-        if (!mIsBeingDragged && diff > mTouchSlop) {
-            mInitialMotionY = mInitialDownY + diff;
+        if (mIsRefreshing && (diff > mTouchSlop || -mCurrentScrollOffset > 0)) {
+            mIsBeingDragged = true;
+            mInitialMotionY = mInitialDownY + mTouchSlop;
+            //scroll direction: from up to down
+        } else if (!mIsBeingDragged && diff > mTouchSlop) {
+            mInitialMotionY = mInitialDownY + mTouchSlop;
             mIsBeingDragged = true;
         }
     }
@@ -696,30 +738,38 @@ public class RecyclerRefreshLayout extends ViewGroup
     }
 
     private void moveSpinner(float overScrollTop) {
+        if (mIsRefreshing && overScrollTop > mRefreshTargetOffset) {
+            overScrollTop = mRefreshTargetOffset;
+        } else if (overScrollTop <= 0.0f) {
+            overScrollTop = 0.0f;
+        }
+
         overScrollTop = mIDragDistanceConverter.convert(overScrollTop, mRefreshTargetOffset);
 
         if (mRefreshView.getVisibility() != View.VISIBLE) {
             mRefreshView.setVisibility(View.VISIBLE);
         }
 
-        if (overScrollTop > mRefreshTargetOffset && !mIsFitRefreshing) {
-            mIsFitRefreshing = true;
-            mIRefreshStatus.pullToRefresh();
-        } else if (overScrollTop <= mRefreshTargetOffset && mIsFitRefreshing) {
-            mIsFitRefreshing = false;
-            mIRefreshStatus.releaseToRefresh();
+        if (!mIsRefreshing) {
+            if (overScrollTop > mRefreshTargetOffset && !mIsFitRefresh) {
+                mIsFitRefresh = true;
+                mIRefreshStatus.pullToRefresh();
+            } else if (overScrollTop <= mRefreshTargetOffset && mIsFitRefresh) {
+                mIsFitRefresh = false;
+                mIRefreshStatus.releaseToRefresh();
+            }
         }
 
         scrollTargetOffset(0, (int) (-mCurrentScrollOffset - overScrollTop));
     }
 
     private void finishSpinner(float overScrollTop) {
-        mReturningToStart = true;
+        overScrollTop = mIDragDistanceConverter.convert(overScrollTop, mRefreshTargetOffset);
 
         if (overScrollTop > mRefreshTargetOffset) {
             setRefreshing(true, true);
         } else {
-            mRefreshing = false;
+            mIsRefreshing = false;
             animateOffsetToStartPosition(-mCurrentScrollOffset, mResetListener);
         }
     }

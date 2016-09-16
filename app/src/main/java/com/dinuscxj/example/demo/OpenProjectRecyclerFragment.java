@@ -17,6 +17,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -33,7 +34,7 @@ public class OpenProjectRecyclerFragment extends RecyclerFragment<OpenProjectMod
     private static final int SIMULATE_FRESH_NO_DATA = 2;
     private static final int SIMULATE_FRESH_FAILURE = 3;
 
-    private static final int REQUEST_DURATION = 800;
+    private static final int REQUEST_DURATION = 3000;
 
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private final List<OpenProjectModel> mItemList = new ArrayList<>();
@@ -215,12 +216,19 @@ public class OpenProjectRecyclerFragment extends RecyclerFragment<OpenProjectMod
         }
 
         @Override
-        public void bind(OpenProjectModel item, int position) {
+        public void bind(final OpenProjectModel item, int position) {
             mTvTitle.setText(item.getTitle());
             mTvContent.setText(item.getContent());
             mTvAuthor.setText(item.getAuthor());
 
             mLlContentPanel.setBackgroundColor(Color.parseColor(item.getColor()));
+
+            itemView.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    Toast.makeText(v.getContext(), item.getTitle(), Toast.LENGTH_LONG).show();
+                }
+            });
         }
     }
 }
