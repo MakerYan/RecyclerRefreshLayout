@@ -34,7 +34,7 @@ public class OpenProjectRecyclerFragment extends RecyclerFragment<OpenProjectMod
     private static final int SIMULATE_FRESH_NO_DATA = 2;
     private static final int SIMULATE_FRESH_FAILURE = 3;
 
-    private static final int REQUEST_DURATION = 3000;
+    private static final int REQUEST_DURATION = 1000;
 
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private final List<OpenProjectModel> mItemList = new ArrayList<>();
