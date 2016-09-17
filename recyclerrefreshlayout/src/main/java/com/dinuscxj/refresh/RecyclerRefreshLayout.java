@@ -344,7 +344,7 @@ public class RecyclerRefreshLayout extends ViewGroup
     public void onStopNestedScroll(View target) {
         mNestedScrollingParentHelper.onStopNestedScroll(target);
         if (mTotalUnconsumed > 0) {
-            finishSpinner(mTotalUnconsumed);
+            finishSpinner();
             mTotalUnconsumed = 0;
         }
 
@@ -652,14 +652,12 @@ public class RecyclerRefreshLayout extends ViewGroup
                     return false;
                 }
 
-                final float overScrollTop = -getScrollY();
-
-                Log.i("diff", overScrollTop + " --- " + (activeMoveY - mInitialMotionY + (-mInitialScrollY)));
+                Log.i("diff", -getScrollY() + " --- " + (activeMoveY - mInitialMotionY + (-mInitialScrollY)));
 
                 mIsBeingDragged = false;
                 mActivePointerId = INVALID_POINTER;
 
-                finishSpinner(overScrollTop);
+                finishSpinner();
                 return false;
             }
             default:
@@ -764,7 +762,9 @@ public class RecyclerRefreshLayout extends ViewGroup
             overScrollTop = 0.0f;
         }
 
-        overScrollTop = mIDragDistanceConverter.convert(overScrollTop, mRefreshTargetOffset);
+        if (!mIsRefreshing) {
+            overScrollTop = mIDragDistanceConverter.convert(overScrollTop, mRefreshTargetOffset);
+        }
 
         if (mRefreshView.getVisibility() != View.VISIBLE) {
             mRefreshView.setVisibility(View.VISIBLE);
@@ -783,10 +783,10 @@ public class RecyclerRefreshLayout extends ViewGroup
         scrollTargetOffset(0, (int) (-mCurrentScrollOffset - overScrollTop));
     }
 
-    private void finishSpinner(float overScrollTop) {
-        overScrollTop = mIDragDistanceConverter.convert(overScrollTop, mRefreshTargetOffset);
+    private void finishSpinner() {
+        float scrollY = -getScrollY();
 
-        if (overScrollTop > mRefreshTargetOffset) {
+        if (scrollY > mRefreshTargetOffset) {
             setRefreshing(true, true);
         } else {
             mIsRefreshing = false;
