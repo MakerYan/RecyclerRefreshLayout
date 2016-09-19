@@ -10,7 +10,6 @@ import android.support.v4.view.NestedScrollingParentHelper;
 import android.support.v4.view.ViewCompat;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
-import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -202,7 +201,7 @@ public class RecyclerRefreshLayout extends ViewGroup
      * @param layoutParams the with is always the match_parent， no matter how you set
      *                     the height you need to set a specific value
      */
-    public void setRefreshView(View refreshView, LayoutParams layoutParams) {
+    public void setRefreshView(View refreshView, ViewGroup.LayoutParams layoutParams) {
         if (mRefreshView == refreshView) {
             return;
         }
@@ -439,8 +438,8 @@ public class RecyclerRefreshLayout extends ViewGroup
 
         mTarget.layout(childLeft, childTop, childLeft + childWidth, childTop + childHeight);
 
-        if (mRefreshTargetOffset < mRefreshView.getHeight()) {
-            mRefreshTargetOffset = mRefreshView.getHeight();
+        if (mRefreshTargetOffset < mRefreshView.getMeasuredHeight()) {
+            mRefreshTargetOffset = mRefreshView.getMeasuredHeight();
         }
 
         int offsetTop = (int) -(mRefreshTargetOffset - (mRefreshTargetOffset - mRefreshView.getMeasuredHeight()) / 2);
@@ -458,10 +457,8 @@ public class RecyclerRefreshLayout extends ViewGroup
             return;
         }
 
-        mTarget.measure(MeasureSpec.makeMeasureSpec(getMeasuredWidth() - getPaddingLeft() - getPaddingRight(), MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(getMeasuredHeight() - getPaddingTop() - getPaddingBottom(), MeasureSpec.EXACTLY));
-        mRefreshView.measure(MeasureSpec.makeMeasureSpec(getMeasuredWidth() - getPaddingLeft() - getPaddingRight(), MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(mRefreshView.getLayoutParams().height, MeasureSpec.EXACTLY));
+        measureTarget();
+        measureRefreshView(widthMeasureSpec, heightMeasureSpec);
 
         mRefreshViewIndex = -1;
         for (int index = 0; index < getChildCount(); index++) {
@@ -470,6 +467,42 @@ public class RecyclerRefreshLayout extends ViewGroup
                 break;
             }
         }
+    }
+
+    private void measureTarget() {
+        mTarget.measure(MeasureSpec.makeMeasureSpec(getMeasuredWidth() - getPaddingLeft() - getPaddingRight(), MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(getMeasuredHeight() - getPaddingTop() - getPaddingBottom(), MeasureSpec.EXACTLY));
+    }
+
+    private void measureRefreshView(int widthMeasureSpec, int heightMeasureSpec) {
+        final MarginLayoutParams lp = (MarginLayoutParams) mRefreshView.getLayoutParams();
+
+        final int childWidthMeasureSpec;
+        if (lp.width == LayoutParams.MATCH_PARENT) {
+            final int width = Math.max(0, getMeasuredWidth() - getPaddingLeft() - getPaddingRight()
+                    - lp.leftMargin - lp.rightMargin);
+            childWidthMeasureSpec = MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY);
+        } else {
+            childWidthMeasureSpec = getChildMeasureSpec(widthMeasureSpec,
+                    getPaddingLeft() + getPaddingRight() + lp.leftMargin + lp.rightMargin,
+                    lp.width);
+        }
+
+        final int childHeightMeasureSpec;
+        if (lp.height == LayoutParams.MATCH_PARENT) {
+            final int height = Math.max(0, getMeasuredHeight()
+                    - getPaddingTop() - getPaddingBottom()
+                    - lp.topMargin - lp.bottomMargin);
+            childHeightMeasureSpec = MeasureSpec.makeMeasureSpec(
+                    height, MeasureSpec.EXACTLY);
+        } else {
+            childHeightMeasureSpec = getChildMeasureSpec(heightMeasureSpec,
+                    getPaddingTop() + getPaddingBottom() +
+                            lp.topMargin + lp.bottomMargin,
+                    lp.height);
+        }
+
+        mRefreshView.measure(childWidthMeasureSpec, childHeightMeasureSpec);
     }
 
     @Override
@@ -867,5 +900,47 @@ public class RecyclerRefreshLayout extends ViewGroup
 
     public interface OnRefreshListener {
         void onRefresh();
+    }
+
+    /**
+     * Per-child layout information for layouts that support margins.
+     */
+    public static class LayoutParams extends MarginLayoutParams {
+
+        public LayoutParams(Context c, AttributeSet attrs) {
+            super(c, attrs);
+        }
+
+        public LayoutParams(int width, int height) {
+            super(width, height);
+        }
+
+        public LayoutParams(MarginLayoutParams source) {
+            super(source);
+        }
+
+        public LayoutParams(ViewGroup.LayoutParams source) {
+            super(source);
+        }
+    }
+
+    @Override
+    public LayoutParams generateLayoutParams(AttributeSet attrs) {
+        return new LayoutParams(getContext(), attrs);
+    }
+
+    @Override
+    protected LayoutParams generateLayoutParams(ViewGroup.LayoutParams p) {
+        return new LayoutParams(p);
+    }
+
+    @Override
+    protected LayoutParams generateDefaultLayoutParams() {
+        return new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+    }
+
+    @Override
+    protected boolean checkLayoutParams(ViewGroup.LayoutParams p) {
+        return p instanceof LayoutParams;
     }
 }
